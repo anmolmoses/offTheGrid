@@ -2,24 +2,23 @@
 
 A command-line app blocker that intercepts terminal commands and prevents you from accessing apps you've chosen to block — on a schedule or on demand.
 
-When you try to run a blocked app, `otg` hijacks the command and displays an animated "ACCESS DENIED" screen with a random motivational quote, then returns you to the prompt.
+When you try to run a blocked app, `otg` hijacks the command and displays an animated sci-fi lockdown sequence with a random motivational quote. On supported systems it also plays bundled synth-style cues: a filtered startup chirp and a harder stereo-style deny double-hit. Set `OTG_SOUND=0` to mute it.
 
 ```
-  ╔════════════════════════════════════════════════╗
-  ║                                                ║
-  ║     O F F   T H E   G R I D                    ║
-  ║                                                ║
-  ╠════════════════════════════════════════════════╣
-  ║                                                ║
-  ║     >>> ACCESS DENIED <<<                      ║
-  ║                                                ║
-  ║     App:     claude                            ║
-  ║     Status:  BLOCKED                           ║
-  ║     Until:   17:00                             ║
-  ║                                                ║
-  ║     "Focus is your superpower."                ║
-  ║                                                ║
-  ╚════════════════════════════════════════════════╝
+  OTG / SYNAPTIC FIREWALL
+  APP EXECUTION BLOCKED
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  OTG / FOCUS PERIMETER :: LOCK SEQUENCE 7A                       ║
+  ║  APP ............ claude                                         ║
+  ║  STATUS ......... EXECUTION BLOCKED                              ║
+  ║  UNTIL .......... 17:00                                          ║
+  ║  VECTOR ......... FOCUS PERIMETER ENGAGED                        ║
+  ║                                                                  ║
+  ║  "Focus is your superpower."                                     ║
+  ║                                                                  ║
+  ║  LOCKOUT MATRIX . █▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ║
+  ╚══════════════════════════════════════════════════════════════════╝
 ```
 
 ---
@@ -93,7 +92,7 @@ otg on
 
 # 3. Try running a blocked app
 claude
-# → Shows the animated ACCESS DENIED screen
+# → Shows the animated lockdown screen (with sound unless OTG_SOUND=0)
 
 # 4. Turn it off when you're done focusing
 otg off
@@ -117,7 +116,7 @@ Off The Grid operates through **zsh shell hooks**. Here's the mechanism:
    - Is the master switch on? (`otg on`)
    - Is the current time within the app's schedule?
 
-4. If blocked: the animated "ACCESS DENIED" box is displayed.
+4. If blocked: the animated lockdown sequence is displayed, with sound cues on supported systems.
    If allowed: the function calls through to the real `claude` binary with all your arguments intact.
 
 5. Whenever you change settings (`otg add`, `otg remove`, `otg on`, `otg off`, `otg schedule`), the hooks automatically refresh in your current shell session. No restart needed.
@@ -190,6 +189,8 @@ otg remove claude
 otg rm chatgpt
 ```
 
+If the app is currently blocked, removal is refused. Wait for its active block window to end, or reschedule it so it is not active first.
+
 ---
 
 ### otg list
@@ -241,7 +242,7 @@ The hooks refresh instantly in your current shell — no restart needed.
 
 ### otg off
 
-Deactivate blocking. All apps become accessible again.
+Deactivate blocking when no app is currently blocked.
 
 ```
 otg off
@@ -254,7 +255,9 @@ otg off
   All apps accessible
 ```
 
-This is the quickest way to regain access to everything. Your blocklist and schedules are preserved — just run `otg on` to re-enable.
+If any block is active right now, `otg off` is refused and shows which apps are currently active. This includes apps set to `always`, since they are active for the entire time OTG is on.
+
+When no block is active, `otg off` still turns the master switch off and preserves your blocklist and schedules.
 
 ---
 
@@ -486,6 +489,8 @@ otg on    # Going dark
 # ... focus ...
 otg off   # Back online
 ```
+
+`otg off` only succeeds when none of your configured blocks are currently active.
 
 ---
 

@@ -6,6 +6,9 @@ set -euo pipefail
 OTG_DIR="${OTG_DIR:-$HOME/.offthegrid}"
 OTG_APPS_DIR="$OTG_DIR/apps"
 OTG_STATE_FILE="$OTG_DIR/state"
+OTG_CACHE_DIR="$OTG_DIR/cache"
+# Bump this when embedded audio changes so stale cached WAVs refresh automatically.
+OTG_AUDIO_CACHE_TAG="stereo_v2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── Colors ──────────────────────────────────────
@@ -20,11 +23,21 @@ DM=$'\e[2m'
 DG=$'\e[2;32m'
 B=$'\e[1m'
 N=$'\e[0m'
+CY2=$'\e[38;2;102;234;255m'
+TE=$'\e[38;2;107;255;223m'
+PK=$'\e[38;2;255;116;156m'
+AM=$'\e[38;2;255;194;104m'
+SL=$'\e[38;2;126;147;166m'
+IG=$'\e[38;2;153;170;185m'
+BGS=$'\e[48;2;10;34;40m'
+
+OTG_BUNDLED_BOOT_WAV_B64='UklGRsQPAABXQVZFZm10IBAAAAABAAIAQB8AAIA+AAACAAgAZGF0YaAPAAB/f39/f3+AgICAfH2Dgn9/e3x/f39/goKBgH9/eHl+foGAgIB/f31+fn6BgX1+goJ+fn9/gYF+foCAfn5/f39/gYB8fYKBf39/f319gH+BgX5+fn59foKBfX2AgH9/fn5/f39/f3+BgH1+gIB/f4CAfn9+fn5+gIB+foGBfn5/f39/f39/f39/gIB9fn9/gIB/f319gIB/f35+gICAf39/fn5/f39/gICAgH9/f39+fn9/gIB/f35+f39/f39/gIB/f35+f39/f35+f3+AgH5+f39/f39/f39/f39/gIB/f39/gIB+foB/f39+foCAf39+f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f3+AgH9/fX1/f4KBf39+fn9/f3+BgH9/enuAf4WDfn99fX9/f3+CgX5+d3mCgYeFfX19fX9/f3+Dgnp7dXiGhYeFenx9fn9/gYGEg3V3eHmMiYSDeXp/f39/hIOAgG9ygICPjHx9ent/f4CAh4V2eHBzjouKh3l6fn5/f4OCgYFxdH9/jYp9fXt8f3+AgIWDd3l2eIuIhIN5en9/f3+Eg31+cnWFhIqHent9fn9/goGCgXJ1f3+MiX19fHx/f4GAhIN0d3p7jIl/f3p7f3+Af4WDd3l3eYyJgoF6e39/f3+Fg3h6dniLiIOCent/f39/hYN5enZ4i4iCgnp7f39/f4WDeHl3eYuIgYB6e39/gH+Eg3Z4eXuMiX9/e3x/f4GAg4J0dn5+i4h8fH19f3+CgYCAcnWEg4iGent/f39/hIN7fHV3ioeDgnp7f3+Af4SDdXh8fIuIfH19fX9/goGAgHN2hoSGhXp7f39/f4SDd3l5eouIfn58fX9/goGAgHN2hoSGhHp7f39/f4SDdnh8fIuIfH19fn9/g4J9fXV3iYeBgXt8f3+BgIKBdHaDgoeFent/f39/hIN2eH19iod7fH5+f3+Eg3p7eHqKiH5+fX1/f4OCfX51eImHgIB8fH9/goF/f3R3iIaCgXt8f3+BgYGAdHaGhYOCe3x/f4GAgYF0d4aEg4J7fH9/gYCBgXR3hoSDgnt8f3+BgICAdHeHhYKBe3x/f4KBf391d4iGgH98fX9/goJ8fXd5iYd9fn5+f3+Dgnl7e3yJh3t8f39/f4OCdniAgIaFe3x/f4CAgYF1d4aEgoF8fX9/goF9fXh5iYd9fX5+f3+Dgnd5f3+HhXt8f3+AgIGBdXeHhYCAfX1/f4OCent7fIiGe3x/f39/goF1eIWEgoF8fX9/goJ7fHt8iIZ7fH9/f3+CgXZ4hoSAgH19f3+Dgnl7fX6HhXt8f3+AgICAd3mIhn1+fn5/f4OCdniDgoOCfH1/f4KBe3x8fYeFe3x/f4CAf393eYiGfX1/f39/goF2eIaEgH99fn9/g4J3eYKBg4J8fX9/goJ6e35+hYR7fH9/gYF9fXt8h4V7fH9/gIB+f3l6h4Z8fH9/gICAgHh5h4V8fX9/gH+BgHd5h4V9fX9/f3+BgHd5h4V9fX9/f3+BgHd5h4V9fX9/f3+AgHh5h4V8fX9/gICAgHh6h4V8fX9/gIB/f3p7hoV8fH9/gYB9fXx9hYR8fX9/goF7fH9/g4J8fX9/goF4eoOCgIB+fn9/goF4eYaEfn5/f39/gIB5eoaFfH1/f4GAfX19foSDfH1/f4KBeXqDgoCAfn5/f4GBeHqGhHx9f3+AgH1+fH2Eg3x9f3+CgXl6g4J/f35/f3+AgHl6hoR8fX9/gYF7fICAgYF+fn9/gYF4eoaEfX1/f4GAfH1/f4KCfX5/f4KBeXqFhH19f3+BgHx9f3+CgX5+f3+BgXl6hYR8fX9/gYF7fIGBgIB+fn9/gIB7fISDfX1/f4KBeXqEg31+f3+AgH19f3+BgX5+f3+BgHp7hYN9fX9/gYF5e4SDfX5/f4CAfH2AgICAfn9/f39/fH2Dgn1+f3+BgXp7hYN9fX9/gYF6e4SDfX5/f4GAe3yBgX9/f3+AgH1+f3+BgH5+f39/f319goJ+fn9/gIB7fIOCfX5/f4GAenuEg319f3+BgXp7hIN9fX9/gYF6e4SDfX1/f4GBenuEg319f3+BgXp7g4J9fn9/gYB6e4OCfX5/f4GAenuDgn1+f3+BgHp7g4J9fn9/gYB7fIOCfX5/f4GAe3yDgn1+f3+AgHx8g4J+fn9/gIB9fYGBfn5/f39/f3+AgH9/gH99fYGAfn9/f4CAfHyCgn1+f3+BgHt8g4J9fn9/gIB8fYKBfn5/f39/f3+AgH9/gIB9fYKBfn5/f4GAe3yDgn5+f3+AgH19gYF/f39/fn6AgH5/f3+AgHx8goJ+fn9/gIB9foGAf39/f31+gYB+fn9/gIB8fYKBfn5/f39/f39/f39/gIB8fYKBfn5/f4CAfn6AgH9/gH99fYKBfn5/f4CAfX6AgH9/f399fYGBfn5/f4CAfX6AgH9/gH99fYGBfn5/f4B/fn6Af39/gIB9fYGBfn5/f39/f39/f39/gIB9fYGAf39/f35+gYB+fn9/gH9+fn9/f3+AgH19gYF+f39/fn6AgH5+f3+Af35+f39/f4CAfX6BgH9/f39+foGAfn5/f39/f39/f39/gIB+foB/f3+Af31+gIB/f39/fn6BgH5/f39/f4CAfn9/f39/f39/f39/gH9+fn9/f3+Af35+gIB/f39/fn6AgH9/f39+foCAf39/f35/gIB/f39/f3+AgH9/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/fn+Af35/f3+Af4CBg314god7cn9+gIGAgn59f4B/fn9+gIF/fn9/f39+fYCCf35/gH+Af4B/gH59f36Agn9/fnx/gICCfnyAgX+Af4B/f358f39/f39+gIJ/f359f39/f3+Af4B/fn9/f39/fn9+gIF/fn9+f39/foCBf35/gH9/f35/fn9/f4B/f39/f35/fn+Af39/f3+Af35/gH9+f4B/f39/f39/f39/f39/f39/f39/f39/f39/f39/f4B/gH+Af4B/gH9+fn1+fH16fXh+fYGFgoiBhoGEgIN/gH57fXl8d3pyenF+fYSMhZCDi4KHgYaAgX15fHZ7c3hrd2h8d4WPiJmGk4SMg4qBhX16e3N6cXdpdF93Z4GEip6LoIeVhY+EjICCe3V5b3hrdF9wVnZmhIyNqI2nhI2DiYKHgIF9eXx2e3R5bndoeW6AgoaTh5aFj4OKgoiBhH58fHd8dXpxeGp3aXx2g4mHlYaThIyCiYKHgIJ+e3x2fHV6cXhqeGp8doKIhpSGk4SNgomCh4GEfn18d3x2e3N5bXdpem9/gIWPh5WFkIOKgoiChoCCfnt8d3x2e3N5bXhqenF/gIWPhpSFkIOLgoiCh4CDfnx8eHx2e3V6cHhreW19eIKIhpKGk4SNg4mCh4GGgIF+e3x4fHZ7dXpweGt5bXx3goaFkYaThI6DioKIgoaAg39+fXl8d3x2e3N5bnhrenB+e4KJhZGGkoSNg4mCh4KGgYN/fn16fHh8d3t1enB4bHltfHaAgoSNhpKFkIOLgoiCh4GGgIN/fn16fHh8d3x1enF5bXlte3R/f4OKhZCFkYSNg4mCh4KGgYWAgX59fXl8eHx3fHV6cnlueW57c359goeEj4WQhI6DioKHgoaBhoGDf4B+fH15fXh8d3x2e3J5b3luenJ9eoGEhIyFkIWPg4yCiIKHgYaBhYCDf39+fH15fXh8eHx2e3N6cHlvenF8d39/goiEjYWPhI2DioKHgYaBhYGFgIN/gH58fXp9eX14fHh8dntzenB6cHtzfXl/gIKIhI2EjoSNg4qCiIGGgYWBhYGEgIF/f358fXp9eX15fXh8dnt0enF6cHpyfHZ+fICDg4mEjYSNhIyDioKHgYaBhYGFgYSAgn+Afn5+e316fXl9eX14fHd7dXtzenF6cnt1fXl/f4GFg4mEjISMg4uDiYKHgYaBhYGEgYSAg4CBf39+fX58fXp9en16fXl9eHx3e3V7c3tye3N8dn16f36Bg4KIg4qDi4OLg4qCiIKGgYWBhIGEgYSAg4CCgIB/f359fnx+e316fXp9en15fXh8d3t1e3R7c3t0fHZ9eX59gIGBhYKIg4qDioOKgomCh4GGgYWBhIGEgYOAg4CDgIKAgX9/f35+fX58fnt+e317fXp9en15fXh8d3x2e3V7dXx1fHd9eX58f3+AgoGFgoeCiIKJgomCiIKHgYaBhYGEgYSAg4CDgIOAg4CCgIGAgX+Af35+fX59fnx+fH57fnt+e357fXp9en15fXh8d3x3fHZ8dnx3fHh9eX57fn1/gICCgYSBhYKHgoeCh4KHgoeBhoGFgYSBhICDgIOAg4CCgIKAgoCCgIKAgYCBf4B/f39+f35+fX59fnx+fH58fnx+fH58fnx+e357fXp9en15fXl9eH14fXh9eH15fXl9en57fn1/fn+AgIGAgoGDgYSBhYGFgYaBhYGFgYWBhIGEgYSAg4CDgIKAgoCCgIKAgoCBgIGAgYCBgIGAgYCAf4B/gH9/f39/f39+f35+fn59fn1+fX59fn1+fX59fn1+fX59fnx+fH58fnx+fH57fnt+e317fXp9en16fXp9en17fnt+e358fn1+fX9+f35/f3+Af4CAgYCBgIKAgoCDgIOAg4CDgIOAg4CDgIOAgoCCgIKAgoCCgIGAgYCBgIGAgYCBgIGAgYCAgIB/gH+Af4B/gH+Af4B/gH+Af4B/gH+Af4B/f39/f39/f39/f39/f39/f39/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/gICAgICAgICAgIGBgYGBgYCAgICAgICAf39/f35+fX19fXx8fHx7e3t7enp6enp6enp6enp6e3t9fX5+gICBgYODhISGhoaGh4eHh4eHh4eHh4aGhoaFhYSEgoKBgX9/fX18fHp6eHh3d3Z2dXV0dHNzc3NycnNzdHR1dXd3enp9fYCAhISGhomJioqLi4yMjIyMjIyMi4uKiomJh4eFhYSEgYF/f319e3t5eXd3dnZ1dXR0c3NycnJycnJycnNzdXV3d3p6fHx/f4ODhYWIiIqKi4uMjIyMjIyLi4uLioqJiYiIhoaEhIKCgIB+fnx8enp4eHd3dnZ0dHR0c3NycnJycnJzc3R0dnZ4eHt7fX2AgIODhoaIiIqKi4uLi4yMi4uLi4qKiYmIiIeHhoaEhIKCgIB+fnx8enp5eXd3dnZ1dXR0c3Nzc3Nzc3Nzc3R0dnZ4eHp6fX2AgIODhYWHh4mJioqLi4uLi4uLi4qKiYmIiIeHhoaEhIODgYF/f319e3t6enh4d3d2dnV1dHRzc3Nzc3Nzc3R0dXV3d3l5e3t+foGBg4OFhYeHiYmKiouLi4uLi4qKioqJiYiIh4eGhoSEg4OBgX9/fX17e3p6eHh3d3Z2dXV0dHR0c3Nzc3R0dHR1dXd3eXl7e319gICCgoWFh4eIiImJioqKioqKioqKiomJiIiHh4aGhYWDg4KCgIB+fnx8e3t5eXh4d3d2dnV1dXV0dHR0dHR0dHV1dnZ3d3l5e3t+foCAgoKFhYaGiIiJiYqKioqKioqKiYmJiYiIh4eGhoWFg4OCgoCAf399fXt7enp5eXh4d3d2dnV1dXV0dHR0dHR1dXZ2d3d4eHp6fHx/f4GBg4OFhYeHiIiJiYmJioqKiomJiYmIiIeHh4eGhoSEg4OCgoCAf399fXx8enp5eXh4d3d2dnZ2dXV1dXV1dXV1dXZ2d3d4eHp6fHx+foCAgoKEhIaGh4eIiImJiYmJiYmJiYmIiIiIh4eGhoWFhISCgoGBgIB+fn19e3t6enl5eHh3d3Z2dnZ1dXV1dXV1dXV1dnZ3d3h4enp8fH5+gICCgoSEhYWHh4iIiIiJiYmJiYmIiIiIh4eHh4aGhYWEhIODgoKAgH9/fX18fHt7enp5eXh4d3d3d3Z2dnZ1dXV1dnZ2dnd3eHh5eXt7fHx+foCAgoKEhIWFhoaHh4iIiIiIiIiIiIiIiIeHhoaGhoWFhISDg4KCgIB/f35+fX17e3p6eXl4eHh4d3d3d3Z2dnZ2dnZ2dnZ3d3d3eXl6ent7fX1/f4GBgoKEhIWFhoaHh4iIiIiIiIiIiIiHh4eHhoaFhYWFhISDg4KCgIB/f35+fX18fHt7enp5eXh4eHh3d3d3dnZ2dnZ2dnZ3d3h4eHh6ent7fX1+foCAgYGDg4SEhYWGhoeHh4eIiIeHh4eHh4eHhoaGhoWFhISDg4KCgYGAgH9/fn59fXx8e3t6enl5eXl4eHh4d3d3d3d3d3d3d3d3eHh5eXp6e3t8fH5+f3+BgYKChISFhYaGhoaHh4eHh4eHh4eHhoaGhoWFhYWEhIODg4OCgoGBgIB/f35+fX18fHt7enp5eXl5eHh4eHh4d3d3d3d3d3d4eHh4eXl6ent7fX1+fn9/gYGCgoODhISFhYaGhoaHh4eHh4eGhoaGhoaFhYWFhISDg4ODgoKBgYCAf39+fn19fHx7e3t7enp5eXl5eHh4eHh4eHh4eHh4eHh4eHl5enp7e3x8fX1/f4CAgYGDg4SEhISFhYaGhoaGhoaGhoaGhoaGhYWFhYSEhISDg4KCgYGBgYCAf39+fn19fHx7e3t7enp6enl5eXl5eXh4eHh4eHh4eHh5eXl5enp7e3x8fX1/f4CAgYGCgoODhISFhYWFhYWGhoaGhoaFhYWFhYWEhISEg4ODg4KCgoKBgYCAf39+fn19fX18fHt7e3t6enp6eXl5eXl5eXl5eXl5eXl5eXl5enp7e3x8fX1+fn9/gICBgYKCg4OEhISEhYWFhYWFhYWFhYWFhYWEhISEg4ODg4KCgoKBgYCAgIB/f35+fX19fXx8e3t7e3p6enp6enl5eXl5eXl5eXl5eXp6enp7e3t7fHx9fX5+f3+AgIGBgoKDg4SEhISEhIWFhYWFhYWFhISEhISEhISDg4ODgoKCgoGBgICAgH9/fn59fX19fHx8fHt7e3t6enp6enp6enp6enp6enp6enp6ent7fHx8fH19fn5/f4CAgYGCgoODg4OEhISEhISEhISEhISEhISEhISDg4ODgoKCgoGBgYGAgICAf39+fn5+fX19fXx8fHx7e3t7e3t6enp6enp6enp6enp6ent7e3t8fHx8fX1+fn9/gICBgYGBgoKDg4ODg4OEhISEhISEhISEg4ODg4ODg4OCgoKCgYGBgYCAgIB/f39/fn59fX19fHx8fHx8e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3x8fHx9fX5+f39/f4CAgYGCgoKCg4ODg4ODg4ODg4ODg4ODg4ODg4OCgoKCgoKBgYGBgICAgH9/f39+fn5+fX19fX19fHx8fHx8e3t7e3t7e3t7e3t7e3t7e3x8fHx8fH19fn5+fn9/gICAgIGBgoKCgoKCg4ODg4ODg4ODg4ODgoKCgoKCgoKBgYGBgYGAgICAgIB/f39/fn5+fn19fX19fXx8fHx8fHx8fHx8fHt7e3t8fHx8fHx8fH19fX1+fn5+f39/f4CAgYGBgYGBgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoGBgYGBgYCAgICAgH9/f39+fn5+fn59fX19fX19fXx8fHx8fHx8fHx8fHx8fHx8fHx8fX19fX19fn5+fn9/f3+AgICAgYGBgYGBgoKCgoKCgoKCgoKCgoKBgYGBgYGBgYGBgICAgICAgIB/f39/f39+fn5+fn59fX19fX19fX19fX19fXx8fHx8fH19fX19fX19fX1+fn5+f39/f39/gICAgIGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGAgICAgICAgH9/f39/f39/fn5+fn5+fn5+fn19fX19fX19fX19fX19fX19fX19fX19fX5+fn5+fn5+f39/f39/gICAgICAgYGBgYGBgYGBgYGBgYGBgYGBgYGAgICAgICAgICAgICAgH9/f39/f39/fn5+fn5+fn5+fn5+fn5+fn5+fX19fX19fX19fX5+fn5+fn5+fn5+fn9/f39/f39/gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIB/f39/f39/f39/f39/f35+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn9/f39/f39/f39/f4CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f39/f39/f39/f39/f39/fn5+fn5+fn5+fn5+fn5+fn9/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f38='
+OTG_BUNDLED_DENY_WAV_B64='UklGRrQYAABXQVZFZm10IBAAAAABAAIAQB8AAIA+AAACAAgAZGF0YZAYAAB/f39/f39+f39/gYB6fX9/goB4fIWBfn+Jg3d8fX6Af31+fn+BgH9/gYB9fn5/goB7fn9/gYB+f39/gH9/f31+fn+DgIB/gH98foCAfn+Af39/fH5/f4KAfX59foGAfn+Af4B/gH99fn9/goB/f3x+goB9foB/f39/f35/f3+Af35/f39/f35+gH9/f4B/fn9/f39/fn+Af39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f4B/gH+Af4B/f39+f31+fH55fXt9goCHgoWBg4GCgH9/fH56fXZ7cnp6fYiDjoWJg4WCg4F+f3l9dnxveWx3eXyOhZWIjoWIg4WBfn53fHR6a3dkdHN6j4Wci5SIjISIg4B/d3xyeml2XXFmdYeCoY2fjJKHjISFgXl9cXprd254bHd5fIyEk4eNhYeChYGAf3p9eHx0em14bnh+fo6FkoeLhIeChIF/f3p9eHxzem14b3l+f46FkYaLhIeChIGAf3t9eHx0e254bnh7fYuEkYaNhYeChYGBgHx+eX12fHF5bXh0eoSBkIaQhomDhoKEgX9/e314fHV7b3lueHh8iIOQho6FiIOFgoOBfn96fXh8dXtveW54eXyIg5CGjoWIg4WCg4F/f3t9eXx2e3F5bnh1e4OBjoWPhYqDhoKEgYGAfX56fXh8dHtveXB5e32Ig4+GjYWIg4WCg4GAf3x+en14fHN6b3lxenx+iYOPhY2EiIOFgYOBgH98fnp9eHx1e3B5cHl5fYWCjoWOhYmDhoKEgYKAfn97fXl9d3xzenB5c3p9fomDjoWMhIiDhYGEgYGAfn57fXl9d3xzenB5c3p9foiCjYWMhIiDhYGEgYKAf398fnp9eHx1e3J6cnp4fIKAi4SNhYqEh4KEgYOBgYB+fnt9en14fHV7cnpyenl8goCKhIyEioOHgoSBg4GBgH5/fH56fXl9d3xzenJ6dnt+foaCi4SLhIiDhYKEgYOAgYB+f3x+en15fXd8dHpyenZ7fX6GgouEi4SIg4aChIGDgYGAf399fnt9en14fHZ7c3p0enh8gH+HgouEioSHgoWBhIGDgIGAf399fnt+en15fXd8dHt0end8fX6EgYmDioSIg4aChIGDgYKAgIB+f3x+e357fXl9d3x1e3R7d3x9foOBiIOKg4mDhoKEgYOBgoCBgH9/fn58fnt+e315fXd8dnt2e3l9fn6DgIeCiIOIg4aChIGDgYKAgoCAf35/fX58fnt+en15fXd8d3x3fHl9fX6BgISBhoKHgoaChYGDgYKAgoCBgIGAgH9/f35+fX58fnx+e356fXh8d3x4fHl8e31+foGAhIGGgoaChYKEgYOBgoCCgIGAgYCAgH9/fn9+fn1+fX58fnx+e316fXl9eXx5fXp9fX5/f4KAhIGFgYWBhYGEgYOAgoCBgIGAgYCAgIB/f39+f35+fX59fn1+fH58fnt9en15fXp9en18fn5/gH+CgISBhIGEgYSBg4GCgIKAgYCBgIGAgICAf39/f39+f35/fn59fn1+fX58fnx+e317fXp9e317fn1+fn+Af4GAgoCDgYOBg4GDgIKAgYCBgIGAgYCAgIB/gH9/f39/f39+f35/fn9+fn5+fX59fn1+fH58fnx+fH58fnx+fX5+f39/gICBgIKAgoCCgIKAgoCBgIGAgYCAgIB/gH+Af4B/gH9/f39/f39/f35/fn9+f35/fn9+f35+fX59fn1+fX59fn1+fX59fn5/fn9/f4B/gH+BgIGAgYCBgIGAgYCAgIB/gH+Af4B/gH+Af39/f39/f39/f39/f39/f39/f39/f39/f39/f39+f35/fn9+f35/fn9+f35/fn9+f35/f39/f39/f39/f39/f3+Af4B/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/fn+Af35/f3+Af4CBg314god7cn9+gIGAgn59f4B/fn9+gIF/fn9/f39+fYCCf35/gH+Af4B/gH59f36Agn9/fnx/gICCfnyAgX+Af4B/f358f39/f39+gIJ/f359f39/f3+Af4B/fn9/f39/fn9+gIF/fn9+f39/foCBf35/gH9/f35/fn9/f4B/f39/f35/fn+Af39/f3+Af35/gH9+f4B/f39/f39/f39/f39/f39/f39/f39/f39/f39/f4B/gH+Af4B/gH9+fn1+fH16fXh+fYGFgoiBhoGEgIN/gH57fXl8d3pyenF+fYSMhZCDi4KHgYaAgX15fHZ7c3hrd2h8d4WPiJmGk4SMg4qBhX16e3N6cXdpdF93Z4GEip6LoIeVhY+EjICCe3V5b3hrdF9wVnZmhIyNqI2nhI2DiYKHgIF9eXx2e3R5bndoeW6AgoaTh5aFj4OKgoiBhH58fHd8dXpxeGp3aXx2g4mHlYaThIyCiYKHgIJ+e3x2fHV6cXhqeGp8doKIhpSGk4SNgomCh4GEfn18d3x2e3N5bXdpem9/gIWPh5WFkIOKgoiChoCCfnt8d3x2e3N5bXhqenF/gIWPhpSFkIOLgoiCh4CDfnx8eHx2e3V6cHhreW19eIKIhpKGk4SNg4mCh4GGgIF+e3x4fHZ7dXpweGt5bXx3goaFkYaThI6DioKIgoaAg39+fXl8d3x2e3N5bnhrenB+e4KJhZGGkoSNg4mCh4KGgYN/fn16fHh8d3t1enB4bHltfHaAgoSNhpKFkIOLgoiCh4GGgIN/fn16fHh8d3x1enF5bXlte3R/f4OKhZCFkYSNg4mCh4KGgYWAgX59fXl8eHx3fHV6cnlueW57c359goeEj4WQhI6DioKHgoaBhoGDf4B+fH15fXh8d3x2e3J5b3luenJ9eoGEhIyFkIWPg4yCiIKHgYaBhYCDf39+fH15fXh8eHx2e3N6cHlvenF8d39/goiEjYWPhI2DioKHgYaBhYGFgIN/gH58fXp9eX14fHh8dntzenB6cHtzfXl/gIKIhI2EjoSNg4qCiIGGgYWBhYGEgIF/f358fXp9eX15fXh8dnt0enF6cHpyfHZ+fICDg4mEjYSNhIyDioKHgYaBhYGFgYSAgn+Afn5+e316fXl9eX14fHd7dXtzenF6cnt1fXl/f4GFg4mEjISMg4uDiYKHgYaBhYGEgYSAg4CBf39+fX58fXp9en16fXl9eHx3e3V7c3tye3N8dn16f36Bg4KIg4qDi4OLg4qCiIKGgYWBhIGEgYSAg4CCgIB/f359fnx+e316fXp9en15fXh8d3t1e3R7c3t0fHZ9eX59gIGBhYKIg4qDioOKgomCh4GGgYWBhIGEgYOAg4CDgIKAgX9/f35+fX58fnt+e317fXp9en15fXh8d3x2e3V7dXx1fHd9eX58f3+AgoGFgoeCiIKJgomCiIKHgYaBhYGEgYSAg4CDgIOAg4CCgIGAgX+Af35+fX59fnx+fH57fnt+e357fXp9en15fXh8d3x3fHZ8dnx3fHh9eX57fn1/gICCgYSBhYKHgoeCh4KHgoeBhoGFgYSBhICDgIOAg4CCgIKAgoCCgIKAgYCBf4B/f39+f35+fX59fnx+fH58fnx+fH58fnx+e357fXp9en15fXl9eH14fXh9eH15fXl9en57fn1/fn+AgIGAgoGDgYSBhYGFgYaBhYGFgYWBhIGEgYSAg4CDgIKAgoCCgIKAgoCBgIGAgYCBgIGAgYCAf4B/gH9/f39/f39+f35+fn59fn1+fX59fn1+fX59fn1+fX59fnx+fH58fnx+fH57fnt+e317fXp9en16fXp9en17fnt+e358fn1+fX9+f35/f3+Af4CAgYCBgIKAgoCDgIOAg4CDgIOAg4CDgIOAgoCCgIKAgoCCgIGAgYCBgIGAgYCBgIGAgYCAgIB/gH+Af4B/gH+Af4B/gH+Af4B/gH+Af4B/f39/f39/f39/f39/f39/f39/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f35/fn9+f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/gICAgICAgICAgIGBgYGBgYCAgICAgICAf39/f35+fX19fXx8fHx7e3t7enp6enp6enp6enp6e3t9fX5+gICBgYODhISGhoaGh4eHh4eHh4eHh4aGhoaFhYSEgoKBgX9/fX18fHp6eHh3d3Z2dXV0dHNzc3NycnNzdHR1dXd3enp9fYCAhISGhomJioqLi4yMjIyMjIyMi4uKiomJh4eFhYSEgYF/f319e3t5eXd3dnZ1dXR0c3NycnJycnJycnNzdXV3d3p6fHx/f4ODhYWIiIqKi4uMjIyMjIyLi4uLioqJiYiIhoaEhIKCgIB+fnx8enp4eHd3dnZ0dHR0c3NycnJycnJzc3R0dnZ4eHt7fX2AgIODhoaIiIqKi4uLi4yMi4uLi4qKiYmIiIeHhoaEhIKCgIB+fnx8enp5eXd3dnZ1dXR0c3Nzc3Nzc3Nzc3R0dnZ4eHp6fX2AgIODhYWHh4mJioqLi4uLi4uLi4qKiYmIiIeHhoaEhIODgYF/f319e3t6enh4d3d2dnV1dHRzc3Nzc3Nzc3R0dXV3d3l5e3t+foGBg4OFhYeHiYmKiouLi4uLi4qKioqJiYiIh4eGhoSEg4OBgX9/fX17e3p6eHh3d3Z2dXV0dHR0c3Nzc3R0dHR1dXd3eXl7e319gICCgoWFh4eIiImJioqKioqKioqKiomJiIiHh4aGhYWDg4KCgIB+fnx8e3t5eXh4d3d2dnV1dXV0dHR0dHR0dHV1dnZ3d3l5e3t+foCAgoKFhYaGiIiJiYqKioqKioqKiYmJiYiIh4eGhoWFg4OCgoCAf399fXt7enp5eXh4d3d2dnV1dXV0dHR0dHR1dXZ2d3d4eHp6fHx/f4GBg4OFhYeHiIiJiYmJioqKiomJiYmIiIeHh4eGhoSEg4OCgoCAf399fXx8enp5eXh4d3d2dnZ2dXV1dXV1dXV1dXZ2d3d4eHp6fHx+foCAgoKEhIaGh4eIiImJiYmJiYmJiYmIiIiIh4eGhoWFhISCgoGBgIB+fn19e3t6enl5eHh3d3Z2dnZ1dXV1dXV1dXV1dnZ3d3h4enp8fH5+gICCgoSEhYWHh4iIiIiJiYmJiYmIiIiIh4eHh4aGhYWEhIODgoKAgH9/fX18fHt7enp5eXh4d3d3d3Z2dnZ1dXV1dnZ2dnd3eHh5eXt7fHx+foCAgoKEhIWFhoaHh4iIiIiIiIiIiIiIiIeHhoaGhoWFhISDg4KCgIB/f35+fX17e3p6eXl4eHh4d3d3d3Z2dnZ2dnZ2dnZ3d3d3eXl6ent7fX1/f4GBgoKEhIWFhoaHh4iIiIiIiIiIiIiHh4eHhoaFhYWFhISDg4KCgIB/f35+fX18fHt7enp5eXh4eHh3d3d3dnZ2dnZ2dnZ3d3h4eHh6ent7fX1+foCAgYGDg4SEhYWGhoeHh4eIiIeHh4eHh4eHhoaGhoWFhISDg4KCgYGAgH9/fn59fXx8e3t6enl5eXl4eHh4d3d3d3d3d3d3d3d3eHh5eXp6e3t8fH5+f3+BgYKChISFhYaGhoaHh4eHh4eHh4eHhoaGhoWFhYWEhIODg4OCgoGBgIB/f35+fX18fHt7enp5eXl5eHh4eHh4d3d3d3d3d3d4eHh4eXl6ent7fX1+fn9/gYGCgoODhISFhYaGhoaHh4eHh4eGhoaGhoaFhYWFhISDg4ODgoKBgYCAf39+fn19fHx7e3t7enp5eXl5eHh4eHh4eHh4eHh4eHh4eHl5enp7e3x8fX1/f4CAgYGDg4SEhISFhYaGhoaGhoaGhoaGhoaGhYWFhYSEhISDg4KCgYGBgYCAf39+fn19fHx7e3t7enp6enl5eXl5eXh4eHh4eHh4eHh5eXl5enp7e3x8fX1/f4CAgYGCgoODhISFhYWFhYWGhoaGhoaFhYWFhYWEhISEg4ODg4KCgoKBgYCAf39+fn19fX18fHt7e3t6enp6eXl5eXl5eXl5eXl5eXl5eXl5enp7e3x8fX1+fn9/gICBgYKCg4OEhISEhYWFhYWFhYWFhYWFhYWEhISEg4ODg4KCgoKBgYCAgIB/f35+fX19fXx8e3t7e3p6enp6enl5eXl5eXl5eXl5eXp6enp7e3t7fHx9fX5+f3+AgIGBgoKDg4SEhISEhIWFhYWFhYWFhISEhISEhISDg4ODgoKCgoGBgICAgH9/fn59fX19fHx8fHt7e3t6enp6enp6enp6enp6enp6enp6ent7fHx8fH19fn5/f4CAgYGCgoODg4OEhISEhISEhISEhISEhISEhISDg4ODgoKCgoGBgYGAgICAf39+fn5+fX19fXx8fHx7e3t7e3t6enp6enp6enp6enp6ent7e3t8fHx8fX1+fn9/gICBgYGBgoKDg4ODg4OEhISEhISEhISEg4ODg4ODg4OCgoKCgYGBgYCAgIB/f39/fn59fX19fHx8fHx8e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3x8fHx9fX5+f39/f4CAgYGCgoKCg4ODg4ODg4ODg4ODg4ODg4ODg4OCgoKCgoKBgYGBgICAgH9/f39+fn5+fX19fX19fHx8fHx8e3t7e3t7e3t7e3t7e3t7e3x8fHx8fH19fn5+fn9/gICAgIGBgoKCgoKCg4ODg4ODg4ODg4ODgoKCgoKCgoKBgYGBgYGAgICAgIB/f39/fn5+fn19fX19fXx8fHx8fHx8fHx8fHt7e3t8fHx8fHx8fH19fX1+fn5+f39/f4CAgYGBgYGBgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoGBgYGBgYCAgICAgH9/f39+fn5+fn59fX19fX19fXx8fHx8fHx8fHx8fHx8fHx8fHx8fX19fX19fn5+fn9/f3+AgICAgYGBgYGBgoKCgoKCgoKCgoKCgoKBgYGBgYGBgYGBgICAgICAgIB/f39/f39+fn5+fn59fX19fX19fX19fX19fXx8fHx8fH19fX19fX19fX1+fn5+f39/f39/gICAgIGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGAgICAgICAgH9/f39/f39/fn5+fn5+fn5+fn19fX19fX19fX19fX19fX19fX19fX19fX5+fn5+fn5+f39/f39/gICAgICAgYGBgYGBgYGBgYGBgYGBgYGBgYGAgICAgICAgICAgICAgH9/f39/f39/fn5+fn5+fn5+fn5+fn5+fn5+fX19fX19fX19fX5+fn5+fn5+fn5+fn9/f39/f39/gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIB/f39/f39/f39/f39/f35+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn9/f39/f39/f39/f4CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f39/f39/f39/f39/f39/fn5+fn5+fn5+fn5+fn5+fn9/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f38='
 
 # ─── Utilities ───────────────────────────────────
 
 ensure_init() {
-    mkdir -p "$OTG_APPS_DIR"
+    mkdir -p "$OTG_APPS_DIR" "$OTG_CACHE_DIR"
     [[ -f "$OTG_STATE_FILE" ]] || echo "off" > "$OTG_STATE_FILE"
 }
 
@@ -125,6 +138,22 @@ is_app_blocked() {
     return 1
 }
 
+active_blocked_apps() {
+    ensure_init
+    local f name
+
+    [[ "$(get_state)" == "on" ]] || return 0
+
+    for f in "$OTG_APPS_DIR"/*; do
+        [[ -f "$f" ]] || continue
+        name="$(basename "$f")"
+
+        if is_app_blocked "$name"; then
+            printf '%s\n' "$name"
+        fi
+    done
+}
+
 typewriter() {
     local text="$1" delay="${2:-0.02}" i
     for ((i = 0; i < ${#text}; i++)); do
@@ -133,20 +162,75 @@ typewriter() {
     done
 }
 
-# ─── Blocked Screen Animation ────────────────────
+repeat_char() {
+    local ch="$1" count="$2" out="" i
+    for ((i = 0; i < count; i++)); do
+        out+="$ch"
+    done
+    printf '%s' "$out"
+}
 
-show_blocked() {
-    local app="$1"
-    local until_time="${2:-}"
+cursor_to() {
+    printf '\033[%s;%sH' "$1" "$2"
+}
 
-    local bw=48  # box interior width
-    local lp=5   # left content padding
+clear_screen() {
+    printf '\033[2J\033[H'
+}
 
-    # Build border string
-    local border="" i
-    for ((i = 0; i < bw; i++)); do border+="═"; done
+hide_cursor() {
+    tput civis 2>/dev/null || printf '\033[?25l'
+}
 
-    # Random motivational quote (50 quotes, shuffled each time)
+show_cursor() {
+    tput cnorm 2>/dev/null || printf '\033[?25h'
+}
+
+term_cols() {
+    tput cols 2>/dev/null || echo "${COLUMNS:-80}"
+}
+
+term_lines() {
+    tput lines 2>/dev/null || echo "${LINES:-24}"
+}
+
+pad_text() {
+    local text="$1" width="$2"
+    if (( width <= 0 )); then
+        printf ''
+        return
+    fi
+
+    if (( ${#text} > width )); then
+        printf '%s' "${text:0:width}"
+    else
+        printf '%-*s' "$width" "$text"
+    fi
+}
+
+clip_text() {
+    local text="$1" width="$2" keep
+
+    if (( width <= 0 )); then
+        printf ''
+        return
+    fi
+
+    if (( ${#text} <= width )); then
+        printf '%s' "$text"
+        return
+    fi
+
+    if (( width <= 3 )); then
+        printf '%s' "${text:0:width}"
+        return
+    fi
+
+    keep=$((width - 3))
+    printf '%s...' "${text:0:keep}"
+}
+
+pick_focus_quote() {
     local quotes=(
         "Deep work is rare and valuable."
         "Focus is your superpower."
@@ -199,82 +283,436 @@ show_blocked() {
         "Stillness is the key."
         "Don't react. Create."
     )
-    local quote="${quotes[$((RANDOM % ${#quotes[@]}))]}"
 
-    # ── Draw the box ──
+    printf '%s' "${quotes[$((RANDOM % ${#quotes[@]}))]}"
+}
+
+can_render_fx() {
+    [[ -t 1 ]] || return 1
+    [[ "${TERM:-}" != "dumb" ]] || return 1
+}
+
+find_linux_sound() {
+    local name path
+    for name in "$@"; do
+        for path in \
+            "/usr/share/sounds/freedesktop/stereo/$name" \
+            "/usr/share/sounds/gnome/default/alerts/$name" \
+            "/usr/share/sounds/ubuntu/stereo/$name"
+        do
+            [[ -f "$path" ]] && {
+                printf '%s' "$path"
+                return 0
+            }
+        done
+    done
+
+    return 1
+}
+
+decode_base64_to_file() {
+    local payload="$1" out_file="$2" tmp_file
+    tmp_file="${out_file}.tmp"
+
+    if printf '%s' "$payload" | base64 -d > "$tmp_file" 2>/dev/null || \
+       printf '%s' "$payload" | base64 --decode > "$tmp_file" 2>/dev/null || \
+       printf '%s' "$payload" | base64 -D > "$tmp_file" 2>/dev/null; then
+        mv "$tmp_file" "$out_file"
+        return 0
+    fi
+
+    rm -f "$tmp_file"
+    return 1
+}
+
+bundled_sound_path() {
+    local cue="$1" path payload
+    ensure_init
+
+    case "$cue" in
+        boot)
+            path="$OTG_CACHE_DIR/blocked_boot_${OTG_AUDIO_CACHE_TAG}.wav"
+            payload="$OTG_BUNDLED_BOOT_WAV_B64"
+            ;;
+        deny)
+            path="$OTG_CACHE_DIR/blocked_deny_${OTG_AUDIO_CACHE_TAG}.wav"
+            payload="$OTG_BUNDLED_DENY_WAV_B64"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [[ ! -s "$path" ]]; then
+        decode_base64_to_file "$payload" "$path" || return 1
+    fi
+
+    printf '%s' "$path"
+}
+
+play_blocked_sound() {
+    local cue="$1" sound="" event="" linux_sound="" bundled=""
+
+    [[ "${OTG_SOUND:-1}" != "0" ]] || return 0
+    [[ -t 1 ]] || return 0
+
+    bundled="$(bundled_sound_path "$cue" 2>/dev/null || true)"
+
+    if [[ -n "$bundled" ]]; then
+        if command -v afplay >/dev/null 2>&1; then
+            (afplay "$bundled" >/dev/null 2>&1 &) || true
+            return 0
+        fi
+
+        if command -v paplay >/dev/null 2>&1; then
+            (paplay "$bundled" >/dev/null 2>&1 &) || true
+            return 0
+        fi
+
+        if command -v aplay >/dev/null 2>&1; then
+            (aplay -q "$bundled" >/dev/null 2>&1 &) || true
+            return 0
+        fi
+    fi
+
+    if command -v canberra-gtk-play >/dev/null 2>&1; then
+        case "$cue" in
+            boot) event="message-new-instant" ;;
+            deny) event="dialog-error" ;;
+        esac
+
+        (canberra-gtk-play -i "$event" >/dev/null 2>&1 &) || true
+        return 0
+    fi
+
+    case "$cue" in
+        boot)
+            linux_sound="$(find_linux_sound \
+                "message-new-instant.oga" \
+                "complete.oga" \
+                "dialog-information.oga" \
+                "dialog-information.wav" 2>/dev/null || true)"
+            ;;
+        deny)
+            linux_sound="$(find_linux_sound \
+                "dialog-warning.oga" \
+                "dialog-error.oga" \
+                "dialog-error.wav" \
+                "suspend-error.oga" 2>/dev/null || true)"
+            ;;
+    esac
+
+    if [[ -n "$linux_sound" ]]; then
+        if command -v paplay >/dev/null 2>&1; then
+            (paplay "$linux_sound" >/dev/null 2>&1 &) || true
+            return 0
+        fi
+
+        if command -v aplay >/dev/null 2>&1 && [[ "$linux_sound" == *.wav ]]; then
+            (aplay -q "$linux_sound" >/dev/null 2>&1 &) || true
+            return 0
+        fi
+    fi
+
+    printf '\a'
+    if [[ "$cue" == "deny" ]]; then
+        sleep 0.05
+        printf '\a'
+    fi
+}
+
+# ─── Blocked Screen Animation ────────────────────
+
+render_backdrop() {
+    local cols="$1" lines="$2"
+    local grid title subtitle clock title_col subtitle_col clock_col row
+
+    grid="$(repeat_char "┈" "$((cols - 6))")"
+    title="OTG / SYNAPTIC FIREWALL"
+    subtitle="focus perimeter active"
+    clock="LOCAL $(date +%H:%M:%S)"
+    title_col=$(((cols - ${#title}) / 2 + 1))
+    subtitle_col=$(((cols - ${#subtitle}) / 2 + 1))
+    clock_col=$((cols - ${#clock} - 1))
+
+    (( title_col < 1 )) && title_col=1
+    (( subtitle_col < 1 )) && subtitle_col=1
+    (( clock_col < 1 )) && clock_col=1
+
+    clear_screen
+    cursor_to 1 "$title_col"
+    printf "%b%s%b" "$CY2" "$title" "$N"
+    cursor_to 2 "$subtitle_col"
+    printf "%b%s%b" "$SL" "$subtitle" "$N"
+    cursor_to 2 "$clock_col"
+    printf "%b%s%b" "$IG" "$clock" "$N"
+
+    for ((row = 4; row <= lines - 2; row += 4)); do
+        cursor_to "$row" 4
+        printf "%b%s%b" "$DM" "$grid" "$N"
+    done
+}
+
+build_meter() {
+    local width="$1" head="$2" out="" i distance
+    for ((i = 0; i < width; i++)); do
+        distance=$((head > i ? head - i : i - head))
+        if (( i == head )); then
+            out+="█"
+        elif (( distance == 1 )); then
+            out+="▓"
+        elif (( distance < 4 )); then
+            out+="▒"
+        else
+            out+="░"
+        fi
+    done
+    printf '%s' "$out"
+}
+
+render_panel() {
+    local top="$1" left="$2" width="$3" app="$4" until_display="$5" quote="$6" scan_row="$7" meter_head="$8"
+    local inner=$((width - 2))
+    local border separator meter_width meter
+    local header_line app_line status_line until_line vector_line quote_line matrix_line
+    local lines colors row padded idx bg
+
+    border="$(repeat_char "═" "$inner")"
+    separator="$(repeat_char "─" "$((inner - 4))")"
+    meter_width=$((inner - 22))
+    (( meter_width < 12 )) && meter_width=12
+    if (( meter_head >= meter_width )); then
+        meter_head=$((meter_width - 1))
+    fi
+    (( meter_head < 0 )) && meter_head=0
+    meter="$(build_meter "$meter_width" "$meter_head")"
+
+    header_line="  OTG / FOCUS PERIMETER :: LOCK SEQUENCE 7A"
+    app_line="  APP ............ $(clip_text "$app" "$((inner - 18))")"
+    status_line="  STATUS ......... EXECUTION BLOCKED"
+    until_line="  UNTIL .......... $(clip_text "$until_display" "$((inner - 18))")"
+    vector_line="  VECTOR ......... FOCUS PERIMETER ENGAGED"
+    quote_line="  \"$(clip_text "$quote" "$((inner - 6))")\""
+    matrix_line="  LOCKOUT MATRIX . $meter"
+
+    lines=(
+        "$header_line"
+        "  $separator"
+        "$app_line"
+        "$status_line"
+        "$until_line"
+        "$vector_line"
+        ""
+        "$quote_line"
+        ""
+        "$matrix_line"
+    )
+    colors=("$CY2" "$SL" "$CY2" "$PK" "$AM" "$TE" "$DM" "$DG" "$DM" "$CY2")
+
+    cursor_to "$top" "$left"
+    printf "%b╔%s╗%b" "$PK" "$border" "$N"
+
+    for ((idx = 0; idx < ${#lines[@]}; idx++)); do
+        row=$((top + idx + 1))
+        padded="$(pad_text "${lines[$idx]}" "$inner")"
+        bg=""
+        if (( scan_row == idx + 1 )); then
+            bg="$BGS"
+        fi
+
+        cursor_to "$row" "$left"
+        printf "%b║%b%b%s%b%b║%b" "$PK" "$bg" "${colors[$idx]}" "$padded" "$N" "$PK" "$N"
+    done
+
+    cursor_to "$((top + ${#lines[@]} + 1))" "$left"
+    printf "%b╚%s╝%b" "$PK" "$border" "$N"
+}
+
+show_blocked_basic() {
+    local app="$1" until_display="$2" quote="$3"
+    local bw=48 lp=5
+    local border title denied qtext
+    local title_rpad denied_rpad app_vis app_rpad status_vis status_rpad until_vis until_rpad q_rpad
+
+    border="$(repeat_char "═" "$bw")"
+    title="O F F   T H E   G R I D"
+    denied=">>> ACCESS DENIED <<<"
+    qtext="\"${quote}\""
 
     echo ""
-
-    # Top border
     printf "  ${R}╔%s╗${N}\n" "$border"
-
-    # Empty line
     printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
 
-    # Title — typewriter effect
-    local title="O F F   T H E   G R I D"
-    local title_rpad=$((bw - lp - ${#title}))
+    title_rpad=$((bw - lp - ${#title}))
     printf "  ${R}║${N}%${lp}s${WH}" ""
     typewriter "$title" 0.03
     printf "${N}%${title_rpad}s${R}║${N}\n" ""
 
-    # Empty line
     printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
-
-    # Separator
     printf "  ${R}╠%s╣${N}\n" "$border"
-
-    # Empty line
     printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
 
-    # Access denied — typewriter effect
-    local denied=">>> ACCESS DENIED <<<"
-    local denied_rpad=$((bw - lp - ${#denied}))
+    denied_rpad=$((bw - lp - ${#denied}))
     printf "  ${R}║${N}%${lp}s${BR}" ""
     typewriter "$denied" 0.02
     printf "${N}%${denied_rpad}s${R}║${N}\n" ""
 
-    # Empty line
     printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
 
-    # App name
-    local app_vis="App:     ${app}"
-    local app_rpad=$((bw - lp - ${#app_vis}))
+    app_vis="App:     ${app}"
+    app_rpad=$((bw - lp - ${#app_vis}))
     printf "  ${R}║${N}%${lp}s${C}App:${N}     ${WH}%s${N}%${app_rpad}s${R}║${N}\n" "" "$app" ""
 
-    # Status
-    local status_vis="Status:  BLOCKED"
-    local status_rpad=$((bw - lp - ${#status_vis}))
+    status_vis="Status:  BLOCKED"
+    status_rpad=$((bw - lp - ${#status_vis}))
     printf "  ${R}║${N}%${lp}s${C}Status:${N}  ${BR}BLOCKED${N}%${status_rpad}s${R}║${N}\n" "" ""
 
-    # Until
-    local until_display
+    until_vis="Until:   ${until_display}"
+    until_rpad=$((bw - lp - ${#until_vis}))
+    printf "  ${R}║${N}%${lp}s${C}Until:${N}   ${Y}%s${N}%${until_rpad}s${R}║${N}\n" "" "$until_display" ""
+
+    printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
+
+    q_rpad=$((bw - lp - ${#qtext}))
+    printf "  ${R}║${N}%${lp}s${DG}" ""
+    typewriter "$qtext" 0.02
+    printf "${N}%${q_rpad}s${R}║${N}\n" ""
+
+    printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
+    printf "  ${R}╚%s╝${N}\n" "$border"
+    echo ""
+}
+
+show_blocked() {
+    local app="$1" until_time="${2:-}"
+    local until_display quote cols lines
+    local boot_row boot_col progress_row bar_w bar_left
+    local header subheader header_col subheader_col
+    local boot_lines line_idx step fill head empty percent
+    local panel_w panel_left panel_top scan meter_width
+    local prompt_row progress_fill_color
+
     if [[ -n "$until_time" ]]; then
         until_display="$until_time"
     else
         until_display="otg off"
     fi
-    local until_vis="Until:   ${until_display}"
-    local until_rpad=$((bw - lp - ${#until_vis}))
-    printf "  ${R}║${N}%${lp}s${C}Until:${N}   ${Y}%s${N}%${until_rpad}s${R}║${N}\n" "" "$until_display" ""
+    quote="$(pick_focus_quote)"
 
-    # Empty line
-    printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
+    if ! can_render_fx; then
+        show_blocked_basic "$app" "$until_display" "$quote"
+        return
+    fi
 
-    # Quote — typewriter effect
-    local qtext="\"${quote}\""
-    local q_rpad=$((bw - lp - ${#qtext}))
-    printf "  ${R}║${N}%${lp}s${DG}" ""
-    typewriter "$qtext" 0.02
-    printf "${N}%${q_rpad}s${R}║${N}\n" ""
+    cols="$(term_cols)"
+    lines="$(term_lines)"
+    if (( cols < 72 || lines < 22 )); then
+        show_blocked_basic "$app" "$until_display" "$quote"
+        return
+    fi
 
-    # Empty line
-    printf "  ${R}║${N}%${bw}s${R}║${N}\n" ""
+    trap 'show_cursor; printf "\033[0m"' EXIT INT TERM
+    hide_cursor
 
-    # Bottom border
-    printf "  ${R}╚%s╝${N}\n" "$border"
+    play_blocked_sound boot
+    render_backdrop "$cols" "$lines"
 
-    echo ""
+    header="EXECUTION INTERCEPT"
+    subheader="app vector rerouted to the focus perimeter"
+    header_col=$(((cols - ${#header}) / 2 + 1))
+    subheader_col=$(((cols - ${#subheader}) / 2 + 1))
+    boot_row=$((lines / 2 - 4))
+    boot_col=$((cols / 2 - 19))
+    (( boot_row < 6 )) && boot_row=6
+    (( boot_col < 6 )) && boot_col=6
+
+    cursor_to "$((boot_row - 2))" "$header_col"
+    printf "%b%s%b" "$WH" "$header" "$N"
+    cursor_to "$((boot_row - 1))" "$subheader_col"
+    printf "%b%s%b" "$SL" "$subheader" "$N"
+
+    boot_lines=(
+        "command vector ...... ${app}"
+        "policy signature ... focus-lock / matched"
+        "response envelope .. quarantine / armed"
+    )
+
+    for ((line_idx = 0; line_idx < ${#boot_lines[@]}; line_idx++)); do
+        cursor_to "$((boot_row + line_idx))" "$boot_col"
+        printf "%b[%02d]%b %b%s%b" "$IG" "$((line_idx + 1))" "$N" "$CY2" "${boot_lines[$line_idx]}" "$N"
+        sleep 0.07
+    done
+
+    progress_row=$((boot_row + 4))
+    bar_w=28
+    if (( cols >= 104 )); then
+        bar_w=34
+    fi
+    bar_left=$(((cols - (bar_w + 22)) / 2 + 1))
+    (( bar_left < 6 )) && bar_left=6
+    progress_fill_color="$TE"
+
+    for ((step = 0; step <= bar_w; step++)); do
+        fill="$(repeat_char "█" "$step")"
+        if (( step < bar_w )); then
+            head="▓"
+            empty="$(repeat_char "░" "$((bar_w - step - 1))")"
+        else
+            head=""
+            empty=""
+        fi
+
+        percent=$((step * 100 / bar_w))
+        cursor_to "$progress_row" "$bar_left"
+        printf "%bLOCKOUT MATRIX%b %b[%b%s%b%s%b%s%b] %b%3d%%%b" \
+            "$IG" "$N" \
+            "$CY2" \
+            "$progress_fill_color" "$fill" \
+            "$WH" "$head" \
+            "$DM" "$empty" \
+            "$CY2" \
+            "$WH" "$percent" "$N"
+        sleep 0.018
+    done
+
+    sleep 0.06
+    play_blocked_sound deny
+    render_backdrop "$cols" "$lines"
+
+    header="APP EXECUTION BLOCKED"
+    subheader="synaptic firewall is holding the line"
+    header_col=$(((cols - ${#header}) / 2 + 1))
+    subheader_col=$(((cols - ${#subheader}) / 2 + 1))
+    panel_w=$((cols - 12))
+    (( panel_w > 72 )) && panel_w=72
+    (( panel_w < 58 )) && panel_w=58
+    panel_left=$(((cols - panel_w) / 2 + 1))
+    panel_top=$((lines / 2 - 5))
+    (( panel_top < 6 )) && panel_top=6
+
+    cursor_to "$((panel_top - 3))" "$header_col"
+    printf "%b%s%b" "$WH" "$header" "$N"
+    cursor_to "$((panel_top - 2))" "$subheader_col"
+    printf "%b%s%b" "$SL" "$subheader" "$N"
+
+    meter_width=$((panel_w - 24))
+    (( meter_width < 12 )) && meter_width=12
+    for ((scan = 1; scan <= 10; scan++)); do
+        render_panel "$panel_top" "$panel_left" "$panel_w" "$app" "$until_display" "$quote" "$scan" "$((scan - 1))"
+        sleep 0.045
+    done
+    render_panel "$panel_top" "$panel_left" "$panel_w" "$app" "$until_display" "$quote" -1 "$((meter_width / 2))"
+
+    prompt_row=$((panel_top + 13))
+    if (( prompt_row > lines )); then
+        prompt_row="$lines"
+    fi
+    cursor_to "$prompt_row" 1
+    printf '\n'
+
+    show_cursor
+    printf '%b' "$N"
+    trap - EXIT INT TERM
 }
 
 # ─── Commands ────────────────────────────────────
@@ -330,7 +768,7 @@ cmd_remove() {
     if [[ -f "$OTG_APPS_DIR/$app" ]]; then
         if is_app_blocked "$app"; then
             printf "  ${R}Cannot remove ${WH}%s${N}${R} while the block is active${N}\n" "$app"
-            printf "  ${DM}Deactivate first with 'otg off' or wait until the schedule ends${N}\n"
+            printf "  ${DM}Wait until the schedule ends, or reschedule it so it is not active, then remove it${N}\n"
             return 1
         fi
         rm "$OTG_APPS_DIR/$app"
@@ -386,6 +824,24 @@ cmd_on() {
 
 cmd_off() {
     ensure_init
+    local active_apps active_summary="" app
+
+    active_apps="$(active_blocked_apps)"
+    if [[ -n "$active_apps" ]]; then
+        while IFS= read -r app; do
+            [[ -n "$app" ]] || continue
+            [[ -n "$active_summary" ]] && active_summary+=", "
+            active_summary+="$app"
+        done <<< "$active_apps"
+
+        echo ""
+        printf "  ${R}Cannot turn Off The Grid off while a block is active${N}\n"
+        printf "  ${DM}Active now: %s${N}\n" "$active_summary"
+        printf "  ${DM}Wait until the schedule ends, or reschedule the app so it is not active.${N}\n"
+        echo ""
+        return 1
+    fi
+
     echo "off" > "$OTG_STATE_FILE"
     echo ""
     printf "  ${Y}○${N} Off The Grid is now ${Y}${B}INACTIVE${N}\n"
@@ -395,7 +851,7 @@ cmd_off() {
 
 cmd_status() {
     ensure_init
-    local state count
+    local state count active_apps name schedule
     state=$(get_state)
     count=$(find "$OTG_APPS_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
 
@@ -407,20 +863,23 @@ cmd_status() {
     fi
     printf "  ${DM}%s app(s) in blocklist${N}\n" "$count"
 
-    if [[ "$state" == "on" ]] && [[ -n "$(ls -A "$OTG_APPS_DIR" 2>/dev/null)" ]]; then
+    if [[ "$state" == "on" ]]; then
+        active_apps="$(active_blocked_apps)"
         echo ""
-        printf "  ${DM}Blocked apps:${N}\n"
-        for f in "$OTG_APPS_DIR"/*; do
-            [[ -f "$f" ]] || continue
-            local name schedule
-            name="$(basename "$f")"
-            schedule="$(cat "$f")"
-            if [[ "$schedule" == "always" ]]; then
-                printf "    ${R}■${N} ${WH}%s${N}\n" "$name"
-            else
-                printf "    ${Y}■${N} ${WH}%s${N}  ${DM}%s${N}\n" "$name" "$schedule"
-            fi
-        done
+        if [[ -n "$active_apps" ]]; then
+            printf "  ${DM}Blocked apps:${N}\n"
+            while IFS= read -r name; do
+                [[ -n "$name" ]] || continue
+                schedule="$(cat "$OTG_APPS_DIR/$name")"
+                if [[ "$schedule" == "always" ]]; then
+                    printf "    ${R}■${N} ${WH}%s${N}\n" "$name"
+                else
+                    printf "    ${Y}■${N} ${WH}%s${N}  ${DM}%s${N}\n" "$name" "$schedule"
+                fi
+            done <<< "$active_apps"
+        else
+            printf "  ${DM}No apps are currently blocked right now${N}\n"
+        fi
     fi
     echo ""
 }
@@ -521,7 +980,7 @@ cmd_help() {
     printf "    ${C}remove${N} <app>                                     Unblock an app\n"
     printf "    ${C}list${N}                                             Show blocked apps\n"
     printf "    ${C}on${N}                                               Activate blocking\n"
-    printf "    ${C}off${N}                                              Deactivate blocking\n"
+    printf "    ${C}off${N}                                              Deactivate when no block is active\n"
     printf "    ${C}status${N}                                           Current state\n"
     printf "    ${C}schedule${N} <app> --from HH:MM --to HH:MM          Set a schedule\n"
     printf "    ${C}schedule${N} <app> --clear                           Clear schedule\n"
